@@ -29,15 +29,16 @@ def test_all_systems():
     # 2. Ollama
     print("\n2. Ollama test ediliyor...")
     try:
-        response = requests.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=5)
+        import requests as req
+        response = req.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=5)
         results["ollama"] = response.status_code == 200
         if results["ollama"]:
             print("   ✅ Ollama çalışıyor")
         else:
             print("   ❌ Ollama bağlantı sorunu")
-    except:
+    except Exception as e:
         results["ollama"] = False
-        print("   ❌ Ollama çalışmıyor")
+        print(f"   ❌ Ollama çalışmıyor: {e}")
     
     # 3. Claude API
     print("\n3. Claude API test ediliyor...")
@@ -56,18 +57,22 @@ def test_all_systems():
     
     # 4. PDF'ler
     print("\n4. PDF'ler kontrol ediliyor...")
-    pdfs = list_pdfs()
-    results["pdf_count"] = len(pdfs)
-    results["pdf"] = len(pdfs) > 0
-    if results["pdf"]:
-        print(f"   ✅ {len(pdfs)} PDF bulundu")
-    else:
-        print("   ⚠️ PDF bulunamadı")
+    try:
+        pdfs = list_pdfs()
+        results["pdf_count"] = len(pdfs)
+        results["pdf"] = len(pdfs) > 0
+        if results["pdf"]:
+            print(f"   ✅ {len(pdfs)} PDF bulundu")
+        else:
+            print("   ⚠️ PDF bulunamadı")
+    except Exception as e:
+        results["pdf"] = False
+        print(f"   ❌ PDF hatası: {e}")
     
     # 5. Gerekli kütüphaneler
     print("\n5. Kütüphaneler kontrol ediliyor...")
     try:
-        import fitz  # type: ignore  # PyMuPDF
+        import pymupdf as fitz  # type: ignore
         import anthropic
         import requests
         results["libraries"] = True
@@ -92,11 +97,24 @@ def test_all_systems():
     if all_ok:
         print("\n🎉 TÜM SİSTEMLER HAZIR!")
         print("✅ Hafta 2'ye geçebilirsiniz!")
+        print("\n📊 Özet:")
+        print(f"   • Config: ✅")
+        print(f"   • Ollama: ✅")
+        print(f"   • Claude API: ✅")
+        print(f"   • PDF'ler: ✅ ({results.get('pdf_count', 0)} adet)")
+        print(f"   • Kütüphaneler: ✅")
     else:
         print("\n⚠️ Bazı sistemlerde sorun var:")
-        for key, value in results.items():
-            if not value:
-                print(f"   ❌ {key}")
+        if not results.get("config"):
+            print("   ❌ Config")
+        if not results.get("ollama"):
+            print("   ❌ Ollama")
+        if not results.get("claude"):
+            print("   ❌ Claude API")
+        if not results.get("pdf"):
+            print("   ❌ PDF'ler")
+        if not results.get("libraries"):
+            print("   ❌ Kütüphaneler")
     
     return results
 

@@ -2,7 +2,7 @@
 PDF işleme modülü
 """
 
-import fitz  # type: ignore  # PyMuPDF
+import pymupdf as fitz  # type: ignore
 from pathlib import Path
 from typing import List, Dict
 from config import config

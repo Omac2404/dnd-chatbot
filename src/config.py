@@ -1,5 +1,5 @@
 """
-Proje konfigürasyon ayarları
+Proje konfigürasyon ayarları ollama + antropic
 """
 
 import os
@@ -22,9 +22,9 @@ class Config:
     OLLAMA_MODEL = "llama3.1:8b-instruct-q4_K_M"
     
     # RAG Settings
-    CHUNK_SIZE = 512
-    CHUNK_OVERLAP = 50
-    TOP_K = 5
+    CHUNK_SIZE = 512  
+    CHUNK_OVERLAP = 50  
+    TOP_K = 7  
     
     # Paths
     PROJECT_ROOT = Path(__file__).parent.parent
