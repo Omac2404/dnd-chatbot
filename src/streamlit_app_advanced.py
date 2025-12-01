@@ -1,16 +1,18 @@
 """
-Gelişmiş Streamlit Arayüzü - Ek Özellikler
+Gelişmiş Streamlit Arayüzü - Memory + Analiz
 Week 4 - Advanced Features
 """
-import streamlit as st # type: ignore
+import streamlit as st  # type: ignore
 from rag_pipeline_hybrid import HybridRAGPipeline
 from config import config
-import pandas as pd # type: ignore
-import plotly.graph_objects as go # type: ignore
+import pandas as pd  # type: ignore
+import plotly.graph_objects as go  # type: ignore
 import time
 import json
 from datetime import datetime
 from pathlib import Path
+
+from chat_memory import get_chat_history, save_message, clear_history
 
 # Sayfa konfigürasyonu
 st.set_page_config(
@@ -71,7 +73,8 @@ st.markdown("""
 
 # Session state initialization
 if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+    # Uygulama ilk açıldığında DB'deki sohbet geçmişini yükle
+    st.session_state.chat_history = get_chat_history()
 
 if 'rag_pipeline' not in st.session_state:
     with st.spinner("🚀 RAG Pipeline yükleniyor..."):
@@ -190,8 +193,9 @@ with st.sidebar:
     
     # Clear chat
     if st.button("🗑️ Sohbeti Temizle", use_container_width=True):
-        st.session_state.chat_history = []
-        st.rerun()
+        st.session_state.chat_history = []   # UI state'i temizle
+        clear_history()                      # DB'deki kayıtları temizle
+        st.rerun()                           # Sayfayı yenile
 
 # Main chat area
 st.title("🎲 D&D Rules Assistant")
@@ -292,8 +296,8 @@ if submit_button and user_input:
             result = st.session_state.rag_pipeline.query(user_input, top_k=top_k)
             elapsed_time = time.time() - start_time
             
-            # Add to history
-            st.session_state.chat_history.append({
+            # Yeni Q&A kaydı
+            entry = {
                 'question': user_input,
                 'answer': result['answer'],
                 'confidence': result['confidence'],
@@ -302,7 +306,13 @@ if submit_button and user_input:
                 'web_enhanced': result.get('web_enhanced', False),
                 'web_sources': result.get('web_sources', []),
                 'response_time': elapsed_time
-            })
+            }
+            
+            # UI'da history'ye ekle
+            st.session_state.chat_history.append(entry)
+            
+            # DB'ye kaydet
+            save_message(entry)
             
             st.rerun()
             
