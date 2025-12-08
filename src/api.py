@@ -1,17 +1,18 @@
 """
 FastAPI REST API - Mobil test için
 """
-from fastapi import FastAPI, HTTPException, UploadFile, File # type: ignore
-from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-import uvicorn # type: ignore
+from typing import Optional, List, Dict
 import time
-from pathlib import Path
 
-# Mevcut modülleriniz
+from fastapi import FastAPI, HTTPException  # type: ignore
+from fastapi.middleware.cors import CORSMiddleware  # type: ignore
+from pydantic import BaseModel, Field
+
+import uvicorn  # type: ignore
+
 from config import config
 from rag_pipeline_hybrid import HybridRAGPipeline
+
 
 # ============================================================
 # MODELLER (Request/Response)
@@ -65,6 +66,7 @@ class HealthResponse(BaseModel):
     claude_status: bool
     vector_db_count: int
     pdf_count: int
+    pipeline_ready: bool
 
 
 class ErrorResponse(BaseModel):
@@ -95,28 +97,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global RAG pipeline
+# Global RAG pipeline (lazy init)
 rag_pipeline: Optional[HybridRAGPipeline] = None
+pipeline_ready: bool = False
 
+
+# ============================================================
+# LIFECYCLE EVENTS
+# ============================================================
 
 @app.on_event("startup")
 async def startup_event():
-    """Uygulama başladığında RAG pipeline'ı yükle"""
-    global rag_pipeline
-    print("🚀 API başlatılıyor...")
-
+    """
+    Uygulama başladığında sadece config kontrolü yap.
+    Ağır olan RAG pipeline kurulumu ilk /query isteğinde yapılacak (lazy init).
+    """
+    print(" API başlatılıyor (lazy RAG init)...")
     try:
-        # RAG pipeline'ı yükle
-        rag_pipeline = HybridRAGPipeline()
-        print("✅ RAG Pipeline yüklendi")
+        config.validate()
+        print("✅ Config OK. RAG pipeline ilk istek geldiğinde oluşturulacak.")
+        print(f"ℹ️ USE_OLLAMA = {config.USE_OLLAMA}")
     except Exception as e:
-        print(f"❌ RAG Pipeline yüklenemedi: {e}")
-        # Production'da burada raise yapmalısınız
+        print(f"❌ Config hatası: {e}")
+        # Config bozuksa server hiç ayağa kalkmasın
         raise
 
 
 # ============================================================
-# ENDPOINTLER !!
+# ENDPOINTLER
 # ============================================================
 
 @app.get("/", tags=["General"])
@@ -136,54 +144,61 @@ async def health_check():
     Sistem sağlık kontrolü
 
     Returns:
-        - Ollama durumu
+        - Ollama durumu (USE_OLLAMA true ise kontrol edilir)
         - Claude durumu
-        - Vector DB document sayısı
+        - Vector DB document sayısı (pipeline yüklüyse)
         - PDF sayısı
     """
     import requests
     from anthropic import Anthropic
     from pdf_processor import list_pdfs
 
-    # Ollama kontrol
+    # Ollama kontrol (isteğe bağlı)
     ollama_ok = False
-    try:
-        r = requests.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=3)
-        ollama_ok = r.status_code == 200
-    except:
-        pass
+    if getattr(config, "USE_OLLAMA", False):
+        try:
+            r = requests.get(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=3)
+            ollama_ok = r.status_code == 200
+        except Exception:
+            ollama_ok = False
 
     # Claude kontrol
     claude_ok = False
     try:
         client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        # Basit bir istek
         client.messages.create(
             model=config.CLAUDE_MODEL,
             max_tokens=10,
             messages=[{"role": "user", "content": "Hi"}],
         )
         claude_ok = True
-    except:
-        pass
+    except Exception:
+        claude_ok = False
 
     # Vector DB
     vector_count = 0
-    try:
-        vector_count = rag_pipeline.vector_db.collection.count()
-    except:
-        pass
+    if rag_pipeline is not None:
+        try:
+            vector_count = rag_pipeline.vector_db.collection.count()
+        except Exception:
+            vector_count = 0
 
     # PDF count
-    pdf_count = len(list_pdfs())
+    try:
+        pdf_count = len(list_pdfs())
+    except Exception:
+        pdf_count = 0
+
+    status = "healthy" if (claude_ok and vector_count > 0) else "degraded"
 
     return HealthResponse(
-        status="healthy" if (ollama_ok and vector_count > 0) else "degraded",
+        status=status,
         version="1.0.0",
         ollama_status=ollama_ok,
         claude_status=claude_ok,
         vector_db_count=vector_count,
         pdf_count=pdf_count,
+        pipeline_ready=pipeline_ready,
     )
 
 
@@ -201,10 +216,28 @@ async def ask_question(request: QueryRequest):
     }
     ```
     """
-    if not rag_pipeline:
+    global rag_pipeline, pipeline_ready
+
+    # İlk istek geldiğinde RAG pipeline'ı oluştur (lazy init)
+    if rag_pipeline is None:
+        try:
+            print("⚙️  İlk istek geldi, RAG pipeline oluşturuluyor...")
+            start_init = time.time()
+            rag_pipeline = HybridRAGPipeline()
+            pipeline_ready = True
+            print(f"✅ RAG pipeline hazır. Süre: {time.time() - start_init:.2f} sn")
+        except Exception as e:
+            pipeline_ready = False
+            print(f"❌ RAG pipeline oluşturulamadı: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"RAG pipeline init hatası: {str(e)}",
+            )
+
+    if rag_pipeline is None:
         raise HTTPException(
             status_code=503,
-            detail="RAG Pipeline henüz yüklenmedi",
+            detail="RAG Pipeline henüz hazır değil",
         )
 
     try:
@@ -239,6 +272,8 @@ async def ask_question(request: QueryRequest):
             response_time=elapsed,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -262,12 +297,13 @@ async def get_stats():
             "confidence_threshold": config.CONFIDENCE_THRESHOLD,
             "ollama_model": config.OLLAMA_MODEL,
             "claude_model": config.CLAUDE_MODEL,
+            "use_ollama": getattr(config, "USE_OLLAMA", False),
         },
     }
 
 
 # ============================================================
-# RUN
+# RUN (Local geliştirme için)
 # ============================================================
 if __name__ == "__main__":
     print("=" * 60)

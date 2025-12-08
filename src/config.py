@@ -20,6 +20,8 @@ class Config:
     # Ollama Settings
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL = "llama3.1:8b-instruct-q4_K_M"
+
+    USE_OLLAMA = os.getenv("USE_OLLAMA", "true").lower() == "true"
     
     # RAG Settings
     CHUNK_SIZE = 512  

@@ -185,6 +185,47 @@ Answer with citations."""
         print(f"📝 Soru: {user_question}")
         print("="*60)
         
+         # 0. Eğer Ollama devre dışı ise direkt Claude kullan
+        if not config.USE_OLLAMA:
+            # 1) PDF context al
+            retrieved_docs = self.retrieve_context(user_question, top_k=top_k)
+            context = self.format_context(retrieved_docs)
+
+            # 2) Web araması
+            web_results = self.web_scraper.search_dnd_content(user_question, max_results=3)
+            web_context = self.web_scraper.format_web_results(web_results)
+
+            # 3) Claude cevabı
+            claude_answer = self.generate_with_claude(
+                user_question,
+                context,
+                web_context=web_context,
+            )
+
+            confidence = self.calculate_confidence(claude_answer, retrieved_docs)
+            confidence = min(confidence + 0.3, 1.0)  # Claude + web olduğu için biraz boost
+
+            return {
+                "question": user_question,
+                "answer": claude_answer,
+                "confidence": confidence,
+                "sources": [
+                    {
+                        "source": doc["metadata"]["source"],
+                        "chunk_id": doc["metadata"]["chunk_id"],
+                        "text_preview": doc["text"][:200],
+                        "similarity": doc.get("similarity", 0.0),
+                    }
+                    for doc in retrieved_docs
+                ],
+                "web_sources": [
+                    {"url": r["url"], "preview": r["text"][:200]} for r in web_results
+                ],
+                "method_used": "claude+web",
+                "web_enhanced": True,
+            }
+
+        
         # 1. RETRIEVAL
         retrieved_docs = self.retrieve_context(user_question, top_k=top_k)
         context = self.format_context(retrieved_docs)

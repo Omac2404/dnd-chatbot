@@ -164,16 +164,17 @@ def main():
     embedded_docs = embedder.embed_documents(test_chunks)
     print()
     
-    # Vector DB'ye kaydet
-    db = VectorDB(collection_name="dnd_test")
-    
-    # Önce temizle (test için)
+    collection_name = "dnd_knowledge"
+
+    db = VectorDB(collection_name=collection_name)
+
+    # Önce temizle (test / yeniden inşa için)
     if db.collection.count() > 0:
-        print("🗑️ Eski data temizleniyor...")
+        print("️ Eski data temizleniyor...")
         db.clear()
-        db = VectorDB(collection_name="dnd_test")
-    
-    db.add_documents(embedded_docs)
+        db = VectorDB(collection_name=collection_name)
+        
+        db.add_documents(embedded_docs)
     
     # Test search
     print("\n" + "="*60)
