@@ -78,7 +78,7 @@ Answer with source citations (Source X):"""
         }
         
         print("🦙 Llama ile cevap üretiliyor...")
-        response = requests.post(url, json=data, timeout=60)
+        response = requests.post(url, json=data, timeout=300)
         
         if response.status_code == 200:
             return response.json()['response']
